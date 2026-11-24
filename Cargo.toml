@@ -21,6 +21,14 @@ name = "nu_formatter"
 name = "nufmt"
 required-features = ["bin"]
 
+[[test]]
+name = "ground_truth"
+required-features = ["bin"]
+
+[[test]]
+name = "main"
+required-features = ["bin"]
+
 [[bench]]
 harness = false
 name = "file-format-bench"

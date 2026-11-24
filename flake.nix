@@ -1,12 +1,10 @@
 {
   description = "The Nushell Formatter";
 
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-  };
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
   outputs =
-    { self, nixpkgs }:
+    { nixpkgs, ... }:
     let
       systems = [
         "aarch64-darwin"
@@ -14,75 +12,18 @@
         "x86_64-darwin"
         "x86_64-linux"
       ];
-      forEachSystem = nixpkgs.lib.genAttrs systems;
-      pkgsFor = forEachSystem (
-        system:
-        import nixpkgs {
-          inherit system;
-          config.allowDeprecatedx86_64Darwin = true;
-        }
-      );
-      # nufmt requires Rust 1.98.1 or newer, and nixos-26.05
-      # defaults to Rust 1.95.
-      rustPackagesFor = system: pkgsFor.${system}.rustPackages_1_98;
-    in
-    {
-      devShells = forEachSystem (
+      perSystem = nixpkgs.lib.genAttrs systems (
         system:
         let
-          pkgs = pkgsFor.${system};
-        in
-        {
-          default = pkgs.mkShell {
-            inputsFrom = [ self.packages.${system}.default ];
-            packages = with pkgs; [
-              nushell
-
-              # Not included in the package dependencies, but used for development
-              rust-analyzer
-              (rustPackagesFor system).rustfmt
-              (rustPackagesFor system).clippy
-            ];
+          pkgs = import nixpkgs {
+            inherit system;
+            config.allowDeprecatedx86_64Darwin = true;
           };
-        }
-      );
-
-      packages = forEachSystem (
-        system:
-        let
-          pkgs = pkgsFor.${system};
-          integrationTestPatch = pkgs.writeTextFile {
-            name = "integration-tests-nix-fix.patch";
-            text =
-              # patch
-              ''
-                diff --git a/tests/ground_truth.rs b/tests/ground_truth.rs
-                --- a/tests/ground_truth.rs
-                +++ b/tests/ground_truth.rs
-                @@ -14,11 +14,11 @@ pub fn get_test_binary() -> PathBuf {
-                     // Try CARGO_TARGET_DIR first
-                     if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
-                -        let path = PathBuf::from(target_dir).join("debug").join(exe_name);
-                +        let path = PathBuf::from(target_dir).join("@target_triple@/release").join(exe_name);
-                         if path.exists() {
-                             return path.canonicalize().unwrap_or(path);
-                         }
-                     }
-
-                     // Try default target directory
-                -    let default_path = PathBuf::from("target").join("debug").join(exe_name);
-                +    let default_path = PathBuf::from("target").join("@target_triple@/release").join(exe_name);
-                     if default_path.exists() {
-              '';
-          };
-          nufmt = (rustPackagesFor system).rustPlatform.buildRustPackage {
+          # nufmt requires Rust 1.98.1 or newer. nixos-26.05 defaults to Rust 1.95.
+          rust = pkgs.rustPackages_1_98;
+          nufmt = rust.rustPlatform.buildRustPackage {
             name = "nufmt";
             src = ./.;
-            patches = [
-              (pkgs.replaceVars "${integrationTestPatch}" {
-                target_triple = pkgs.stdenv.hostPlatform.rust.rustcTarget;
-              })
-            ];
             cargoLock.lockFile = ./Cargo.lock;
 
             meta = {
@@ -94,11 +35,28 @@
           };
         in
         {
-          default = nufmt;
-          inherit nufmt;
+          packages = {
+            default = nufmt;
+            inherit nufmt;
+          };
+
+          devShells.default = pkgs.mkShell {
+            inputsFrom = [ nufmt ];
+            packages = [
+              pkgs.nushell
+              pkgs.rust-analyzer
+              rust.rustfmt
+              rust.clippy
+            ];
+          };
+
+          formatter = pkgs.nixfmt-tree;
         }
       );
-
-      formatter = forEachSystem (system: pkgsFor.${system}.nixfmt-tree);
+    in
+    {
+      packages = builtins.mapAttrs (_: outputs: outputs.packages) perSystem;
+      devShells = builtins.mapAttrs (_: outputs: outputs.devShells) perSystem;
+      formatter = builtins.mapAttrs (_: outputs: outputs.formatter) perSystem;
     };
 }

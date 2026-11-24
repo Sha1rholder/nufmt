@@ -7,28 +7,9 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Get the path to the test binary
+/// Get the path to the formatter binary built for this test run.
 pub fn get_test_binary() -> PathBuf {
-    let exe_name = if cfg!(windows) { "nufmt.exe" } else { "nufmt" };
-
-    // Try CARGO_TARGET_DIR first
-    if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
-        let path = PathBuf::from(target_dir).join("debug").join(exe_name);
-        if path.exists() {
-            return path.canonicalize().unwrap_or(path);
-        }
-    }
-
-    // Try default target directory
-    let default_path = PathBuf::from("target").join("debug").join(exe_name);
-    if default_path.exists() {
-        default_path.canonicalize().unwrap_or(default_path)
-    } else {
-        panic!(
-            "Test binary not found. Please build the project first to create {:?}",
-            default_path
-        );
-    }
+    PathBuf::from(env!("CARGO_BIN_EXE_nufmt"))
 }
 
 /// Helper to run the formatter on input and compare with expected output
